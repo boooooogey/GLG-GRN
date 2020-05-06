@@ -44,7 +44,7 @@ def gram_matrix(ptime,L,Dt,kernel,mask):
         Ksum[n] = K[n] @ np.logical_not(mask).T
     return K,Ksum
 
-def convert_to_FISTA(X,ptime,kernel,L,Dt,g,mask,queue):
+def convert_to_FISTA(X,ptime,L,Dt,g,mask,queue,K,Ksum):
     '''
     Converts GLG problem into a FISTA problem
         X: data matrix
@@ -54,7 +54,6 @@ def convert_to_FISTA(X,ptime,kernel,L,Dt,g,mask,queue):
         Dt: average sampling interval length
     '''
     Ngenes, Ntimes = X.shape
-    K,Ksum = gram_matrix(ptime,L,Dt,kernel,mask)
     NL = int(L/Dt)
     iiy = ptime > L
     Ny = np.sum(iiy)
@@ -82,9 +81,8 @@ def reformat_output(w,ngene,NL,g,adj_matrix,queue):
         res = p @ np.sum(w[:,i].reshape(ngene,NL),axis=1)
         adj_matrix[i,:,g] = res
 
-def single_gene_GLG(X,ptime,L,Dt,g,sigma,lambdas,mask,queue):
-    k = lambda x,y: np.exp(-np.power(x-y,2)/sigma)
-    A,y,K = convert_to_FISTA(X,ptime,k,L,Dt,g,mask,queue)
+def single_gene_GLG(X,ptime,L,Dt,g,sigma,lambdas,mask,queue,K,Ksum):
+    A,y,K = convert_to_FISTA(X,ptime,L,Dt,g,mask,queue,K,Ksum)
     nSamp, nFea = A.shape
     NL = int(L/Dt)
     #out = training(A,y,np.random.rand(A.shape[1]),0)
@@ -107,13 +105,16 @@ def single_gene_GLG(X,ptime,L,Dt,g,sigma,lambdas,mask,queue):
     #    fit['beta'] = beta
     return fit
 
-def GLG(X,ptime,L,Dt,lambdas,sigma,prob):
+def GLG(X,ptime,L,Dt,lambdas,sigma,probdrop,probzero=0):
     nGene, ntime = X.shape
     adj_matrix = np.zeros((len(lambdas),nGene,nGene))
     queue = np.arange(nGene)
-    mask = drop_zero(X,prob)
+    mask = drop_zero(X,probzero)
+    mask = drop_samples(X,probdrop,mask=mask)
+    k = lambda x,y: np.exp(-np.power(x-y,2)/sigma)
+    K,Ksum = gram_matrix(ptime,L,Dt,k,mask)
     for g in range(nGene):
-        fit = single_gene_GLG(X,ptime,L,Dt,0,sigma,lambdas,mask,queue)
+        fit = single_gene_GLG(X,ptime,L,Dt,0,sigma,lambdas,mask,queue,K,Ksum)
         reformat_output(fit['beta'],nGene,int(L/Dt),g,adj_matrix,queue)
         if g+2 <= nGene:
             queue = np.arange(nGene)
@@ -124,6 +125,16 @@ def GLG(X,ptime,L,Dt,lambdas,sigma,prob):
 def drop_zero(X,prob):
     mask = np.random.rand(*X.shape)
     return np.logical_and(mask < prob,X == 0)
+
+def drop_samples(X,prob,mask=None):
+    if mask is None:
+        mask = np.random.rand(*X.shape)
+        return mask < prob
+    else:
+        mask_c = mask.copy()
+        tmp = np.logical_not(mask)
+        mask_c[tmp] = np.random.rand(np.sum(tmp)) < prob
+    return mask_c
 
 def borda_voting(adj):
     L = adj[0].size
@@ -170,6 +181,11 @@ def table_write(cont,path):
         for i in cont:
             file.write(i+'\n')
 
+def GLG_network(X,ptime,L,Dt,lambdas,sigma,probDrop,probZero):
+    adj = GLG(X,ptime,L,Dt,lambdas,sigma,probDrop,probZero)
+    agg = borda_voting(adj)
+    return agg
+
 def main():
     L = 15  # Lag
     Dt = 3  # To discretize the time
@@ -177,19 +193,18 @@ def main():
     g = 0  # The gene that's being predicted
     lambdas = np.array([0.1,0.05,0.02,0.01,0])
     family_param = 'gaussian'
-    prob = 0.1
-    #X, ptime = read_matlab('/data/src/SINGE/data1/X_SCODE_data.mat')
-    #gene_names = [i[0] for i in (loadmat("/data/src/SINGE/data1/gene_list.mat")['gene_list']).reshape(-1)]
-    data = np.load("/data/causal/data/simulated_dataset.npz",allow_pickle=True)
-    X,ptime,gene_names = np.asarray(data['mat'].ravel()[0].todense()),data['ptime'].reshape(-1),data['gene_names'].reshape(-1)
+    probDrop = 0
+    probZero = 0
+    X, ptime = read_matlab('/data/causal/golden_standards/X_Dyngen.mat')
+    gene_names = [i[0] for i in (loadmat("/data/causal/golden_standards/gene_list.mat")['gene_list']).reshape(-1)]
+    ptime = ptime/np.max(ptime) * 100
+    #data = np.load("/data/causal/data/simulated_dataset.npz",allow_pickle=True)
+    #X,ptime,gene_names = np.asarray(data['mat'].ravel()[0].todense()),data['ptime'].reshape(-1),data['gene_names'].reshape(-1)
     #X = X[[not i.startswith("HK") for i in gene_names],:]
-    adj = GLG(X,ptime,L,Dt,lambdas,sigma,prob)
-    agg = borda_voting(adj)
+    agg = GLG_network(X,ptime,L,Dt,lambdas,sigma,probDrop,probZero)
     table_edge = create_edge_list(agg,gene_names)
     table_influence = create_influence_list(agg,gene_names)
     tedge = format_table(table_edge)
     tinf = format_table(table_influence)
     table_write(tedge,"/data/causal/data1_output_edge.txt")
     table_write(tinf,"/data/causal/data1_output_inf.txt")
-
-main()

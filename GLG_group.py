@@ -173,15 +173,15 @@ def GLG_network(X,ptime,L,Dt,lamb,sigma,group_reg,probDrop,probZero):
 def main():
     L = 15  # Lag
     Dt = 3  # To discretize the time
-    sigma = 0.5  # sigma for the gaussian kernel
+    sigma = 0.1  # sigma for the gaussian kernel
     g = 0  # The gene that's being predicted
-    lamb = 0
+    lamb = 0.05
     family_param = 'gaussian'
-    group_reg = 5
+    group_reg = 0.1
     probDrop = 0
     probZero = 0
-    X, ptime = read_matlab('/data/causal/golden_standards/X_Dyngen.mat')
-    gene_names = [i[0] for i in (loadmat("/data/causal/golden_standards/gene_list.mat")['gene_list']).reshape(-1)]
+    X, ptime = read_matlab('/data/src/SINGE/data1/X_SCODE_data.mat')
+    gene_names = [i[0] for i in (loadmat("/data/src/SINGE/data1/gene_list.mat")['gene_list']).reshape(-1)]
     ptime = ptime/np.max(ptime) * 100
     #data = np.load("/data/causal/data/simulated_dataset.npz",allow_pickle=True)
     #X,ptime,gene_names = np.asarray(data['mat'].ravel()[0].todense()),data['ptime'].reshape(-1),data['gene_names'].reshape(-1)
@@ -194,4 +194,3 @@ def main():
     embed()
     #table_write(tedge,"/data/causal/data1_output_edge.txt")
     #table_write(tinf,"/data/causal/data1_output_inf.txt")
-main()
